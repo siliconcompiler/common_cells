@@ -8,26 +8,20 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
-// Author: Wolfgang Roenninger <wroennin@ethz.ch>
+// Author: Luca Colagrande <colluca@ethz.ch>
 
-/// Address Decoder: Maps the input address combinatorially to an index.
+/// Address Decoder: Maps the input address combinatorially to a mask.
 /// The address map `addr_map_i` is a packed array of rule_t structs.
-/// The ranges of any two rules may overlap. If so, the rule at the higher (more significant)
-/// position in `addr_map_i` prevails.
+/// The ranges of any two rules may overlap.
 ///
 /// There can be an arbitrary number of address rules. There can be multiple
 /// ranges defined for the same index. The start address has to be less than the end address.
-///
-/// There is the possibility to add a default mapping:
-/// `en_default_idx_i`: Driving this port to `1'b1` maps all input addresses
-/// for which no rule in `addr_map_i` exists to the default index specified by
-/// `default_idx_i`. In this case, `dec_error_o` is always `1'b0`.
 ///
 /// Assertions: The module checks every time there is a change in the address mapping
 /// if the resulting map is valid. It fatals if `start_addr` is higher than `end_addr`
 /// or if a mapping targets an index that is outside the number of allowed indices.
 /// It issues warnings if the address regions of any two mappings overlap.
-module addr_decode #(
+module multiaddr_decode #(
   /// Highest index which can happen in a rule.
   parameter int unsigned NoIndices = 32'd0,
   /// Total number of rules.
@@ -46,36 +40,18 @@ module addr_decode #(
   ///  - `idx`:        index of the rule, has to be < `NoIndices`
   ///  - `start_addr`: start address of the range the rule describes, value is included in range
   ///  - `end_addr`:   end address of the range the rule describes, value is NOT included in range
-  parameter type         rule_t    = logic,
-  /// Dependent parameter, do **not** overwite!
-  ///
-  /// Width of the `idx_o` output port.
-  parameter int unsigned IdxWidth  = cf_math_pkg::idx_width(NoIndices),
-  /// Dependent parameter, do **not** overwite!
-  ///
-  /// Type of the `idx_o` output port.
-  parameter type         idx_t     = logic [IdxWidth-1:0]
+  parameter type         rule_t    = logic
 ) (
   /// Address to decode.
-  input  addr_t               addr_i,
-  /// Address map: rule with the highest array position wins on collision
-  input  rule_t [NoRules-1:0] addr_map_i,
+  input  addr_t                addr_i,
+  /// Address map.
+  input  rule_t [NoRules-1:0]  addr_map_i,
   /// Decoded index.
-  output idx_t                idx_o,
+  output logic [NoIndices-1:0] mask_o,
   /// Decode is valid.
-  output logic                dec_valid_o,
+  output logic                 dec_valid_o,
   /// Decode is not valid, no matching rule found.
-  output logic                dec_error_o,
-  /// Enable default port mapping.
-  ///
-  /// When not used, tie to `0`.
-  input  logic                en_default_idx_i,
-  /// Default port index.
-  ///
-  /// When `en_default_idx_i` is `1`, this will be the index when no rule matches.
-  ///
-  /// When not used, tie to `0`.
-  input  idx_t                default_idx_i
+  output logic                 dec_error_o
 );
 
   logic [NoRules-1:0] matched_rules; // purely for address map debugging
@@ -84,16 +60,16 @@ module addr_decode #(
     // default assignments
     matched_rules = '0;
     dec_valid_o   = 1'b0;
-    dec_error_o   = (en_default_idx_i) ? 1'b0 : 1'b1;
-    idx_o         = (en_default_idx_i) ? default_idx_i : '0;
+    dec_error_o   = 1'b1;
+    mask_o        = '0;
 
     // match the rules
     for (int unsigned i = 0; i < NoRules; i++) begin
       if ((addr_i >= addr_map_i[i].start_addr) && (addr_i < addr_map_i[i].end_addr)) begin
-        matched_rules[i] = 1'b1;
-        dec_valid_o      = 1'b1;
-        dec_error_o      = 1'b0;
-        idx_o            = idx_t'(addr_map_i[i].idx);
+        matched_rules[i]           = 1'b1;
+        dec_valid_o                = 1'b1;
+        dec_error_o                = 1'b0;
+        mask_o[addr_map_i[i].idx] |= 1'b1;
       end
     end
   end
